@@ -349,6 +349,9 @@ while True:
 
 			print(language["info_nsfwtoggle"] + str(nsfwAllowed))
 			continue
+		elif inText.lower().startswith(commands["magiccount"]):
+			magicCount = int(re.split(r"(\.\w+) (\d+)", inText.lower())[2])
+			continue
 		elif inText.lower().startswith(commands["magictoggle"]):
 			usingMagicPrompt = not usingMagicPrompt
 			if usingMagicPrompt:
@@ -357,9 +360,6 @@ while True:
 				magicPipe = None
 
 			print(language["info_magictoggle"] + str(usingMagicPrompt))
-			continue
-		elif inText.lower().startswith(commands["magiccount"]):
-			magicCount = int(re.split(r"(\.\w+) (\d+)", inText.lower())[2])
 			continue
 		elif inText.lower().startswith(commands["inferencecount"]):
 			inferenceCount = int(re.split(r"(\.\w+) (\d+)", inText.lower())[2])
