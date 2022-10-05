@@ -414,7 +414,8 @@ while True:
 				# Clear prompts
 				prompts = []
 				for i in range(magicCount):
-					prompts.append(generateMagicPrompt(line, curSeed))
+					magicSeed = seed if seed != -1 else random.randint(0, 2 ** 32)
+					prompts.append(generateMagicPrompt(line, magicSeed))
 					# Print prompt
 					print(language["info_magicprompt"] + prompts[-1])
 
