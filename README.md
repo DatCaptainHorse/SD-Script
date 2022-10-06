@@ -4,6 +4,9 @@ Small and simple Python script for playing with Stable Diffusion models.
 ## Requirements
 SD-Script has been tested with Python 3.10 and PyTorch 1.12.
 
+### CUDA
+For CUDA you need to install PyTorch CUDA variant from https://pytorch.org/.
+
 ## Usage
 Grab requirements by running command `pip install -r requirements.txt` or `pip install --user -r requirements.txt`.
 
@@ -25,4 +28,4 @@ Run the script with Python by running command `python sdscript.py` while in same
 * `.guidance` - (7.5) How much the model should follow the prompt (higher = more). Example: `.guidance 8.5`
 * `.magic` - (False) Toggles MagicPrompt model to add detail to your prompts. Example: `.magic`
 * `.magiccount` - (1) Amount of MagicPrompt prompts to use. Example: `.magiccount 3`
-* `.nsfw` - (False) Toggles NSFW filter. Example: `.nsfw`
+* `.nsfw` - (False) Toggles whether NSFW output is allowed. Example: `.nsfw`
