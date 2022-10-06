@@ -5,7 +5,7 @@ Small and simple Python script for playing with Stable Diffusion models.
 SD-Script has been tested with Python 3.10 and PyTorch 1.12.
 
 ## Usage
-TODO: ~~Grab requirements by running command `pip install -r requirements.txt` or `pip install --user -r requirements.txt`.~~
+Grab requirements by running command `pip install -r requirements.txt` or `pip install --user -r requirements.txt`.
 
 Run the script with Python by running command `python sdscript.py` while in same directory (assuming you only have single version of Python installed).
 
