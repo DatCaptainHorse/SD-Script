@@ -74,7 +74,7 @@ languages = \
 			"input_multiline": "v Multiline input, press Ctrl + Z and Enter when done v",
 			"info_nsfwtoggle": "NSFW allowed? ",
 			"info_magictoggle": "Magic enabled? ",
-			"info_magicprompt": "Magic prompt: ",
+			"info_inferencesteptoggle": "Inference step images enabled? ",
 		},
 
 		"fi": {
@@ -96,7 +96,7 @@ languages = \
 			"input_multiline": "v Monirivi syöte, paina Ctrl + Z ja Enter kun valmis v",
 			"info_nsfwtoggle": "NSFW sallittu? ",
 			"info_magictoggle": "Taikuus käytössä? ",
-			"info_magicprompt": "Taikuuden teksti: ",
+			"info_inferencesteptoggle": "Inferenssivaiheen kuvat käytössä? ",
 		},
 	}
 
@@ -121,6 +121,8 @@ commands = \
 		"nsfwtoggle": (".nsfw", ".nsfw"),
 		"magictoggle": (".magic", ".taika"),
 		"magiccount": (".magiccount", ".taikamäärä"),
+		"magicseed": (".magicseed", ".taikasiemen"),
+		"inferencesteptoggle": (".inferencesteps", ".päättelyvaiheet"),
 	}
 
 # Defaults
@@ -213,7 +215,7 @@ while True:
 if useGPUifAvailable and torch.cuda.is_available():
 	usingGPU = True
 	dataType = torch.float16
-	dev = "cuda"
+	dev = "cuda:0"
 else:
 	usingGPU = False
 	dataType = torch.float32
@@ -264,7 +266,8 @@ def createMagicPipe():
 	if usingGPU:
 		torch.cuda.empty_cache()
 
-	return pipeline("text-generation", model="Gustavosta/MagicPrompt-Stable-Diffusion", tokenizer="gpt2")
+	return pipeline("text-generation", model="Gustavosta/MagicPrompt-Stable-Diffusion", tokenizer="gpt2",
+	                torch_dtype=dataType, device=dev)
 
 
 magicPipe = None
@@ -272,10 +275,19 @@ magicPipe = None
 
 def generateMagicPrompt(prompt: str, seed: int = None):
 	global magicPipe
+	global usingGPU
+	global dataType
+	global dev
+
+	if not magicPipe:
+		return prompt
+
 	if seed is not None:
 		set_seed(seed)
 
-	responses = magicPipe(prompt, max_length=(len(prompt) + 100), num_return_sequences=1)
+	with torch.cuda.amp.autocast(enabled=usingGPU):
+		responses = magicPipe(prompt, max_length=(len(prompt) + 100), num_return_sequences=1, pad_token_id=50256)
+
 	result = responses[0]["generated_text"].strip()
 	# Clean up prompt
 	result = re.sub(r"[^ ]+\.[^ ]+", "", result)
@@ -299,7 +311,21 @@ imageStrength = 0.75  # image strength
 nsfwAllowed = False  # allow NSFW images
 usingMagicPrompt = False  # use MagicPrompt model to generate stabler images
 magicCount = 1  # amount of MagicPrompt variations to generate
+magicSeed = -1  # seed for MagicPrompt
 usingImg2Img = False  # use image-to-image generation
+doingPerInferenceImg = False  # generate image after each inference step
+
+
+def saveImage(_img, _inferences, _seed):
+	saveFile = folder / f"{_seed}_inf{_inferences}.png"
+
+	fileOutCount = 0
+	while saveFile.exists():
+		saveFile = folder / f"{_seed}_inf{_inferences}_{fileOutCount}.png"
+		fileOutCount += 1
+
+	# Save image
+	_img.save(saveFile)
 
 while True:
 	inText = input(language["input_prompt"])
@@ -352,14 +378,22 @@ while True:
 		elif inText.lower().startswith(commands["magiccount"]):
 			magicCount = int(re.split(r"(\.\w+) (\d+)", inText.lower())[2])
 			continue
+		elif inText.lower().startswith(commands["magicseed"]):
+			magicSeed = int(re.split(r"(\.\w+) (-?\d+)", inText.lower())[2])
+			continue
 		elif inText.lower().startswith(commands["magictoggle"]):
 			usingMagicPrompt = not usingMagicPrompt
 			if usingMagicPrompt:
+				print(language["info_loading"])
 				magicPipe = createMagicPipe()
 			else:
 				magicPipe = None
 
 			print(language["info_magictoggle"] + str(usingMagicPrompt))
+			continue
+		elif inText.lower().startswith(commands["inferencesteptoggle"]):
+			doingPerInferenceImg = not doingPerInferenceImg
+			print(language["info_inferencesteptoggle"] + str(doingPerInferenceImg))
 			continue
 		elif inText.lower().startswith(commands["inferencecount"]):
 			inferenceCount = int(re.split(r"(\.\w+) (\d+)", inText.lower())[2])
@@ -401,48 +435,68 @@ while True:
 			print(language["error_unknowncommand"])
 			continue
 
-	with torch.cuda.amp.autocast(enabled=usingGPU):
-		fileOutcount = 0
-		for line in inText.splitlines():
-			# Generate random seed if not specified
-			curSeed = seed if seed != -1 else random.randint(0, 2 ** 32)
-			rng = torch.Generator(device=dev).manual_seed(curSeed)
 
-			# If using magic prompt, create prompt using line as input
-			prompts = [line]
+	for line in inText.splitlines():
+		# If using magic prompt, create prompt using line as input
+		prompts_seeds = [(line, -1)]
+		if usingMagicPrompt:
+			# Clear prompts_seeds
+			prompts_seeds = []
+
+			# Generate random magic seed if not specified
+			curMagicSeed = magicSeed if magicSeed != -1 else random.randint(0, 2 ** 32)
+
+			for i in range(magicCount):
+				prompts_seeds.append((generateMagicPrompt(line, curMagicSeed), curMagicSeed))
+				# Increment seed
+				curMagicSeed += 1
+
+		# Generate image for each prompt
+		for prompt, mSeed in prompts_seeds:
+			fileOutCount = 0
+
+			# Create folder using prompt with invalid characters removed using regex, limit line name to 50 characters
+			folder = pathlib.Path(f"output/{re.sub(r'[^a-zA-Z0-9]+', '', line)[:50]}")
 			if usingMagicPrompt:
-				# Clear prompts
-				prompts = []
-				for i in range(magicCount):
-					magicSeed = seed if seed != -1 else random.randint(0, 2 ** 32)
-					prompts.append(generateMagicPrompt(line, magicSeed))
-					# Print prompt
-					print(language["info_magicprompt"] + prompts[-1])
+				folder /= pathlib.Path(f"magic_{mSeed}")
+			else:
+				folder /= pathlib.Path("nonmagical")
+
+			folder.mkdir(parents=True, exist_ok=True)
 
 			for i in range(outCount):
+				# Generate random seed if not specified
+				curSeed = seed if seed != -1 else random.randint(0, 2 ** 32)
+
 				# If using static seed and doing multiple outputs, vary parameters slightly
 				gScaleVary = guidanceScale
 				iStrengthVary = imageStrength
 				if seed != -1 and outCount > 1:
-					gScaleVary += random.uniform(-0.25, 0.25)
-					iStrengthVary += random.uniform(-0.15, 0.15)
+					gScaleVary += random.uniform(-0.5, 0.5)
+					iStrengthVary += random.uniform(-0.25, 0.25)
 
-				# Generate image for each prompt
-				for prompt in prompts:
-					output = diffuser(prompt=prompt, init_image=guidanceImage if usingImg2Img else None,
-					                  strength=iStrengthVary if usingImg2Img else None, guidance_scale=gScaleVary,
-					                  width=width, height=height, num_inference_steps=inferenceCount,
-					                  generator=rng).images[0]
+				# If doing per inference image, generate image for each inference step
+				if doingPerInferenceImg:
+					for j in range(1, inferenceCount):
+						rng = torch.Generator(device=dev).manual_seed(curSeed)
 
-					# Create folder using prompt with invalid characters removed, limit to 100 characters
-					folder = pathlib.Path("output/" + "".join(re.split(r"[^a-zA-Z0-9]+", line))[:100])
-					folder.mkdir(parents=True, exist_ok=True)
+						# Step can't be power of 3, fixed in diffusers v0.4.0 (in dev)
+						# TODO: Remove when diffusers v0.4.0 is released
+						if j % 3 == 0:
+							continue
 
-					# Save output, if already exists, add number to filename (if that also exists, add another number, etc.)
-					saveFile = folder / f"{curSeed}.png"
-					while saveFile.exists():
-						saveFile = folder / f"{curSeed}_{fileOutcount}.png"
-						fileOutcount += 1
-
-					# Save image
-					output.save(saveFile)
+						with torch.cuda.amp.autocast(enabled=usingGPU):
+							saveImage(diffuser(prompt=prompt,
+							                   init_image=guidanceImage if usingImg2Img else None,
+							                   strength=iStrengthVary if usingImg2Img else None,
+							                   guidance_scale=gScaleVary,
+							                   width=width, height=height, num_inference_steps=j,
+							                   generator=rng).images[0], j, rng.initial_seed())
+				else:
+					rng = torch.Generator(device=dev).manual_seed(curSeed)
+					with torch.cuda.amp.autocast(enabled=usingGPU):
+						saveImage(diffuser(prompt=prompt, init_image=guidanceImage if usingImg2Img else None,
+						                   strength=iStrengthVary if usingImg2Img else None,
+						                   guidance_scale=gScaleVary,
+						                   width=width, height=height, num_inference_steps=inferenceCount,
+						                   generator=rng).images[0], inferenceCount, rng.initial_seed())
