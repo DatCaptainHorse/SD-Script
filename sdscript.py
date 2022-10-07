@@ -306,6 +306,7 @@ guidanceScale = 7.5  # guidance scale
 width = 512  # image width
 height = 512  # image height
 seed = -1  # seed for random number generator
+guidanceSourceImage = None  # guidance source image
 guidanceImage = None  # guidance image
 imageStrength = 0.75  # image strength
 nsfwAllowed = False  # allow NSFW images
@@ -340,8 +341,8 @@ while True:
 						inText = f.read()
 				# if image file, use as guidanceImage
 				elif pathlib.Path(splitted).suffix in [".png", ".jpg", ".jpeg"]:
-					guidanceImage = Image.open(splitted)
-					guidanceImage = guidanceImage.convert("RGB").resize((width, height))
+					guidanceSourceImage = Image.open(splitted)
+					guidanceImage = guidanceSourceImage.convert("RGB").resize((width, height))
 					if not usingImg2Img:
 						print(language["info_loading"])
 						setDiffuser(True)
@@ -356,6 +357,7 @@ while True:
 			outCount = int(re.split(r"(\.\w+) (\d+)", inText.lower())[2])
 			continue
 		elif inText.lower().startswith(commands["reset"]):
+			guidanceSourceImage = None
 			guidanceImage = None
 			if usingImg2Img:
 				print(language["info_loading"])
@@ -402,12 +404,18 @@ while True:
 			newWidth = int(re.split(r"(\.\w+) (\d+)", inText.lower())[2])
 			# Keep width as multiple of 64
 			width = newWidth - (newWidth % 64)
+			if usingImg2Img:
+				guidanceImage = guidanceSourceImage.convert("RGB").resize((width, height))
+
 			print(width)
 			continue
 		elif inText.lower().startswith(commands["height"]):
 			newHeight = int(re.split(r"(\.\w+) (\d+)", inText.lower())[2])
 			# Keep height as multiple of 64
 			height = newHeight - (newHeight % 64)
+			if usingImg2Img:
+				guidanceImage = guidanceSourceImage.convert("RGB").resize((width, height))
+
 			print(height)
 			continue
 		elif inText.lower().startswith(commands["guidancescale"]):
@@ -468,10 +476,10 @@ while True:
 				# Generate random seed if not specified
 				curSeed = seed if seed != -1 else random.randint(0, 2 ** 32)
 
-				# If using static seed and doing multiple outputs, vary parameters slightly
+				# If using static seed, doing multiple outputs and not doing step saving, vary parameters slightly
 				gScaleVary = guidanceScale
 				iStrengthVary = imageStrength
-				if seed != -1 and outCount > 1:
+				if seed != -1 and outCount > 1 and not doingPerInferenceImg:
 					gScaleVary += random.uniform(-0.5, 0.5)
 					iStrengthVary += random.uniform(-0.25, 0.25)
 
@@ -491,7 +499,7 @@ while True:
 							                   strength=iStrengthVary if usingImg2Img else None,
 							                   guidance_scale=gScaleVary,
 							                   width=width, height=height, num_inference_steps=j,
-							                   generator=rng).images[0], j, rng.initial_seed())
+							                   generator=rng).images[0], j, curSeed)
 				else:
 					rng = torch.Generator(device=dev).manual_seed(curSeed)
 					with torch.cuda.amp.autocast(enabled=usingGPU):
@@ -499,4 +507,4 @@ while True:
 						                   strength=iStrengthVary if usingImg2Img else None,
 						                   guidance_scale=gScaleVary,
 						                   width=width, height=height, num_inference_steps=inferenceCount,
-						                   generator=rng).images[0], inferenceCount, rng.initial_seed())
+						                   generator=rng).images[0], inferenceCount, curSeed)
