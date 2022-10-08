@@ -347,12 +347,13 @@ while True:
 						print(language["info_loading"])
 						setDiffuser(True)
 						usingImg2Img = True
+
+					continue
 				else:
 					print(language["error_unknownfile"])
 			else:
 				print(language["error_unknownfile"])
 
-			continue
 		elif inText.lower().startswith(commands["outputcount"]):
 			outCount = int(re.split(r"(\.\w+) (\d+)", inText.lower())[2])
 			continue
